@@ -15,6 +15,7 @@
  *
  */
 
+#include <linux/crc32.h>
 #include <linux/delay.h>
 #include <linux/gpio.h>
 #include <linux/i2c.h>
@@ -900,29 +901,26 @@ struct platform_device bcm_bt_lpm_device = {
 };
 
 
-#define ATAG_BDADDR 0x43294329  /* htcleo bluetooth address tag */
-#define ATAG_BDADDR_SIZE 4
 #define BDADDR_STR_SIZE 18
-
 static char bdaddr[BDADDR_STR_SIZE];
 
 module_param_string(bdaddr, bdaddr, sizeof(bdaddr), 0400);
 MODULE_PARM_DESC(bdaddr, "bluetooth address");
 
-static int __init parse_tag_bdaddr(const struct tag *tag)
+static int parse_tag_bdaddr(void)
 {
-	unsigned char *b = (unsigned char *)&tag->u;
-
-	if (tag->hdr.size != ATAG_BDADDR_SIZE)
-		return -EINVAL;
-
-	snprintf(bdaddr, BDADDR_STR_SIZE, "%02X:%02X:%02X:%02X:%02X:%02X",
-			b[0], b[1], b[2], b[3], b[4], b[5]);
-
+	uint32_t id1, id2, id3, sid1, sid2, sid3;
+	uint32_t id_base = 0xef260;
+	id1 = readl(MSM_SHARED_RAM_BASE + id_base + 0x0);
+	id2 = readl(MSM_SHARED_RAM_BASE + id_base + 0x4);
+	id3 = readl(MSM_SHARED_RAM_BASE + id_base + 0x8);
+	sid1 = crc32(~0, &id1, 4);
+	sid2 = crc32(~0, &id2, 4);
+	sid3 = crc32(~0, &id3, 4);
+	sprintf(bdaddr, "00:23:76:%2X:%2X:%2X", sid3 % 0xff, sid2 % 0xff, sid1 % 0xff);
+	pr_info("Device Bluetooth Mac Address: %s\n", bdaddr);
 	return 0;
 }
-
-__tagtable(ATAG_BDADDR, parse_tag_bdaddr);
 
 static int __init board_serialno_setup(char *serialno)
 {
@@ -1489,6 +1487,8 @@ static void __init htcleo_init(void)
 #endif
 
 	config_gpio_table(bt_gpio_table, ARRAY_SIZE(bt_gpio_table));
+
+        parse_tag_bdaddr();
 
 	bt_export_bd_address();
 
